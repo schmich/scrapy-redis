@@ -19,15 +19,21 @@ class RedisStatsCollector(StatsCollector):
         self.update_interval = crawler.settings.get('STATS_UPDATE_INTERVAL', STATS_UPDATE_INTERVAL)
         self.key_expire = crawler.settings.get('STATS_KEY_EXPIRE', STATS_KEY_EXPIRE)
         self.key_pattern = crawler.settings.get('STATS_KEY_PATTERN', STATS_KEY_PATTERN)
+        self.hostname = socket.gethostname()
+        self.key_name = None
         self.update_task = None
-        self.spider_id = None
         
         if crawler.settings.get('STATS_SET_HOSTNAME', STATS_SET_HOSTNAME):
-            self.set_value('hostname', socket.gethostname())
+            self.set_value('hostname', self.hostname)
 
     def open_spider(self, spider):
         super(RedisStatsCollector, self).open_spider(spider)
-        self.spider_id = uuid.uuid4()
+
+        self.key_name = self.key_pattern.format(
+            spider=spider.name,
+            hostname=self.hostname,
+            id=uuid.uuid4()
+        )
 
         if not self.update_task and self.update_interval:
             self.update_task = task.LoopingCall(self._update_stats, spider)
@@ -44,8 +50,7 @@ class RedisStatsCollector(StatsCollector):
         self._update_stats(spider)
 
     def _update_stats(self, spider):
-        key = self.key_pattern.format(spider=spider.name, id=self.spider_id)
-        self.server.hmset(key, self._stats)
+        self.server.hmset(self.key_name, self._stats)
         
         if self.key_expire:
-            self.server.expire(key, self.key_expire)
+            self.server.expire(self.key_name, self.key_expire)

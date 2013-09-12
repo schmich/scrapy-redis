@@ -83,7 +83,8 @@ Enable the components in your `settings.py`:
   STATS_UPDATE_INTERVAL = 0
   
   # The scheme to use for naming the stats key in Redis.
-  # {spider} is the name of the spider; {id} is a randomly-generated UUID for the crawl.
+  # {spider} is the name of the spider; {id} is a randomly-generated UUID for the crawl;
+  # {hostname} is the hostname of the current machine, but is not included by default.
   # Example: dmoz:stats:80ff56f1-a922-49d6-8cb8-b76fb997b71b
   STATS_KEY_PATTERN = '{spider}:stats:{id}'
   

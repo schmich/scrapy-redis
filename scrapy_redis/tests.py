@@ -1,6 +1,7 @@
 import os
 import redis
 import connection
+import socket
 import time
 
 from scrapy.http import Request
@@ -284,7 +285,7 @@ class StatsCollectorTest(TestCase):
         for key in self.server.keys('%s:*' % self.spider.name):
             self.server.delete(key)
 
-    def create_stats(self, settings={}):
+    def create_collector(self, settings={}):
         crawler = Crawler(CrawlerSettings())
         for key, value in settings.items():
             crawler.settings.overrides[key] = value
@@ -294,7 +295,7 @@ class StatsCollectorTest(TestCase):
         return RedisStatsCollector(crawler)
 
     def run_scenario(self, settings={}):
-        stats = self.create_stats(settings)
+        stats = self.create_collector(settings)
         stats.open_spider(self.spider)
         stats.set_value('foo', 'bar')
         stats.close_spider(self.spider, 'Closing.')
@@ -307,6 +308,9 @@ class StatsCollectorTest(TestCase):
         self.assertEqual(len(keys), 1)
 
         key = keys[0]
+        redis_type = self.server.type(key)
+        self.assertEqual(redis_type, 'hash')
+
         value = self.server.hget(key, 'foo')
         self.assertEqual(value, 'bar')
 
@@ -319,6 +323,15 @@ class StatsCollectorTest(TestCase):
         self.run_scenario(settings)
 
         keys = self.server.keys('%s:baz:*' % self.spider.name)
+        self.assertEqual(len(keys), 1)
+
+    # If STATS_KEY_PATTERN contains {hostname}, it should be replaced with the machine's hostname.
+    def test_stats_key_pattern_hostname(self):
+        settings = dict(STATS_KEY_PATTERN = '{spider}:{hostname}:{id}')
+        self.run_scenario(settings)
+
+        hostname = socket.gethostname()
+        keys = self.server.keys('%s:%s:*' % (self.spider.name, hostname))
         self.assertEqual(len(keys), 1)
 
     # If STATS_KEY_EXPIRE is set, that key should expire.
@@ -342,3 +355,29 @@ class StatsCollectorTest(TestCase):
         hostname = self.server.hget(key, 'hostname')
         self.assertTrue(hostname)
         self.assertTrue(len(hostname) > 0)
+
+    # If multiple spiders are run under the same crawler, all stats should be saved.
+    def test_stats_multiple_spiders(self):
+        crawler = Crawler(CrawlerSettings())
+        crawler.configure()
+
+        s1 = RedisStatsCollector(crawler)
+        s2 = RedisStatsCollector(crawler)
+
+        s1.open_spider(self.spider)
+        s2.open_spider(self.spider)
+        s1.set_value('foo1', 'bar1')
+        s2.set_value('foo2', 'bar2')
+        s1.close_spider(self.spider, 'Closing.')
+        s2.close_spider(self.spider, 'Closing.')
+
+        keys = self.server.keys('%s:stats:*' % self.spider.name)
+        self.assertEqual(len(keys), 2)
+
+        all_values = {}
+        for key in keys:
+            values = self.server.hgetall(key)
+            all_values = dict(all_values.items() + values.items())
+
+        self.assertEqual(all_values['foo1'], 'bar1')
+        self.assertEqual(all_values['foo2'], 'bar2')
