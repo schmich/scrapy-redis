@@ -381,3 +381,15 @@ class StatsCollectorTest(TestCase):
 
         self.assertEqual(all_values['foo1'], 'bar1')
         self.assertEqual(all_values['foo2'], 'bar2')
+
+    # If no stats are set, no key should be created in Redis.
+    def test_stats_empty(self):
+        crawler = Crawler(CrawlerSettings())
+        crawler.configure()
+
+        stats = RedisStatsCollector(crawler)
+        stats.open_spider(self.spider)
+        stats.close_spider(self.spider, 'Closing.')
+
+        keys = self.server.keys('%s:stats:*' % self.spider.name)
+        self.assertEqual(len(keys), 0)

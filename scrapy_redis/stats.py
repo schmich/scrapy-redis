@@ -50,7 +50,10 @@ class RedisStatsCollector(StatsCollector):
         self._update_stats(spider)
 
     def _update_stats(self, spider):
-        self.server.hmset(self.key_name, self._stats)
-        
-        if self.key_expire:
-            self.server.expire(self.key_name, self.key_expire)
+        # We only update the stats key if there are any stats available,
+        # since Redis does not allow empty hashes.
+        if len(self._stats):
+            self.server.hmset(self.key_name, self._stats)
+            
+            if self.key_expire:
+                self.server.expire(self.key_name, self.key_expire)
