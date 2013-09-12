@@ -1,14 +1,18 @@
 import os
 import redis
 import connection
+import time
 
 from scrapy.http import Request
 from scrapy.spider import BaseSpider
+from scrapy.crawler import Crawler
+from scrapy.settings import CrawlerSettings
 from unittest import TestCase
 
 from .dupefilter import RFPDupeFilter
 from .queue import SpiderQueue, SpiderPriorityQueue, SpiderStack
 from .scheduler import Scheduler
+from .stats import RedisStatsCollector
 
 
 # allow test settings from environment
@@ -268,3 +272,73 @@ class ConnectionTest(TestCase):
 
         self.assertEqual(connect_args['host'], 'localhost')
         self.assertEqual(connect_args['port'], 6379)
+
+
+class StatsCollectorTest(TestCase):
+
+    def setUp(self):
+        self.server = redis.Redis(REDIS_HOST, REDIS_PORT)
+        self.spider = BaseSpider('scrapy_redis_test')
+
+    def tearDown(self):
+        for key in self.server.keys('%s:*' % self.spider.name):
+            self.server.delete(key)
+
+    def create_stats(self, settings={}):
+        crawler = Crawler(CrawlerSettings())
+        for key, value in settings.items():
+            crawler.settings.overrides[key] = value
+
+        crawler.configure()
+
+        return RedisStatsCollector(crawler)
+
+    def run_scenario(self, settings={}):
+        stats = self.create_stats(settings)
+        stats.open_spider(self.spider)
+        stats.set_value('foo', 'bar')
+        stats.close_spider(self.spider, 'Closing.')
+
+    # If a stat is set, it should be present in Redis.
+    def test_stats_set_get(self):
+        self.run_scenario()
+
+        keys = self.server.keys('%s:stats:*' % self.spider.name)
+        self.assertEqual(len(keys), 1)
+
+        key = keys[0]
+        value = self.server.hget(key, 'foo')
+        self.assertEqual(value, 'bar')
+
+        hostname = self.server.hget(key, 'hostname')
+        self.assertEqual(hostname, None)
+
+    # If STATS_KEY_PATTERN is specified, that key should be set in Redis.
+    def test_stats_key_pattern(self):
+        settings = dict(STATS_KEY_PATTERN = '{spider}:baz:{id}')
+        self.run_scenario(settings)
+
+        keys = self.server.keys('%s:baz:*' % self.spider.name)
+        self.assertEqual(len(keys), 1)
+
+    # If STATS_KEY_EXPIRE is set, that key should expire.
+    def test_stats_key_expire(self):
+        settings = dict(STATS_KEY_EXPIRE = 1)
+        self.run_scenario(settings)
+
+        time.sleep(settings['STATS_KEY_EXPIRE'])
+        keys = self.server.keys('%s:stats:*' % self.spider.name)
+        self.assertEqual(len(keys), 0)
+
+    # If STATS_SET_HOSTNAME is specified, the hostname should be present in Redis.
+    def test_stats_set_hostname(self):
+        settings = dict(STATS_SET_HOSTNAME = True)
+        self.run_scenario(settings)
+
+        keys = self.server.keys('%s:stats:*' % self.spider.name)
+        self.assertEqual(len(keys), 1)
+
+        key = keys[0]
+        hostname = self.server.hget(key, 'hostname')
+        self.assertTrue(hostname)
+        self.assertTrue(len(hostname) > 0)
