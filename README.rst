@@ -24,6 +24,7 @@ Available Scrapy components:
 * Duplication Filter
 * Item Pipeline
 * Base Spider
+* Stats Collector
 
 
 Installation
@@ -48,7 +49,7 @@ Enable the components in your `settings.py`:
 .. code-block:: python
 
   # Enables scheduling storing requests queue in redis.
-  SCHEDULER = "scrapy_redis.scheduler.Scheduler"
+  SCHEDULER = 'scrapy_redis.scheduler.Scheduler'
 
   # Don't cleanup redis queues, allows to pause/resume crawls.
   SCHEDULER_PERSIST = True
@@ -71,6 +72,29 @@ Enable the components in your `settings.py`:
   ITEM_PIPELINES = [
       'scrapy_redis.pipelines.RedisPipeline',
   ]
+
+  # Enable the stats collector to store crawl stats in Redis.
+  # See additional configuration for the collector below (with default values).
+  # Stats are stored as a Redis hash on a per-crawl basis (i.e. one key per crawl).
+  STATS_CLASS = 'scrapy_redis.stats.RedisStatsCollector'
+  
+  # How frequently to update the stats in Redis (in seconds).
+  # If set to 0, the stats will be set only once when the crawl completes.
+  STATS_UPDATE_INTERVAL = 0
+  
+  # The scheme to use for naming the stats key in Redis.
+  # {spider} is the name of the spider; {id} is a randomly-generated UUID for the crawl.
+  # Example: dmoz:stats:80ff56f1-a922-49d6-8cb8-b76fb997b71b
+  STATS_KEY_PATTERN = '{spider}:stats:{id}'
+  
+  # The expiration time to set on the Redis stats key (in seconds).
+  # If set to 0, no expiration will be set on the key.
+  STATS_KEY_EXPIRE = 0
+  
+  # Whether or not to automatically add the machine's hostname to the collected stats.
+  # This can be useful when doing a distributed crawl and wanting to aggregate per-host stats.
+  # The hostname is set using socket.gethostname. 
+  STATS_SET_HOSTNAME = False
   
   # Specify the host and port to use when connecting to Redis (optional).
   REDIS_HOST = 'localhost'
